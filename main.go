@@ -1,5 +1,4 @@
 package main
-
 import (
 	"fmt"
 	"net/http"
@@ -33,9 +32,27 @@ type Player struct{
     color Color
 }
 
-var connections = make(map[*websocket.Conn]*Player)
-var currentId = 0
+/*
+message:
+    header
+        version - 8
+        payloads_count - 8
+        ---------
+        payloads:
+            type - 8
+            player_joined:
+                id 8
+            player_left:
+                id 8
+            player_moved:
+                id 8
+                direction
+        ---------
+*/
 
+
+var currentId = 0
+var connections = make(map[*websocket.Conn]*Player)
 func handleConnection(w http.ResponseWriter, r *http.Request) {
     conn, err := upgrader.Upgrade(w, r, nil)
     if err != nil {
@@ -71,16 +88,17 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
                                                     []byte(fmt.Sprintf("player_left:%d", player.id)))
                 if err != nil {
                     fmt.Println("This Error while writing message:", err)
+                    other_player.conn.Close()
                 }
             }
             break
         }
         switch strings.Split(string(msg), ":")[1]{
             case "up":
-                player.position.y += 1;
+                player.position.z += 1;
                 break;
             case "back":
-                player.position.y += -1;
+                player.position.z += -1;
                 break;
             case "left":
                 player.position.x += -1;
@@ -99,8 +117,14 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
     }
 }
 
+func redirectToVite(w http.ResponseWriter, r *http.Request) {
+    http.Redirect(w, r, "http://77.232.23.43:1581", 301)
+}
+
 
 func main(){
+    // fs := http.FileServer(http.Dir("./"))
+    http.HandleFunc("/", redirectToVite)
     http.HandleFunc("/ws", handleConnection)
     fmt.Println("Server started on :1580")
     if err := http.ListenAndServe("0.0.0.0:1580", nil); err != nil {
