@@ -81,7 +81,9 @@ function createTextSprite(message, color) {
 
 
 class Player{
-    constructor(glb, text= 'test' ) {
+    constructor(glb, ws, text= 'test', isPlayer = false ) {
+        this.ws = ws
+        this.isPlayer = isPlayer
         this.scene = SkeletonUtils.clone(glb.scene); // https://discourse.threejs.org/t/how-to-clone-a-gltf/78858/4
         this.scene.castShadows = true;
         this.mixer = new THREE.AnimationMixer(this.scene)
@@ -99,8 +101,8 @@ class Player{
         this.sprite = createTextSprite(text)
         this.sprite.position.set(0, 1.5, 0)
         this.scene.add(this.sprite)
-        this.prevKeypressed = []
-        this.keypressed = []
+        this.prevKeypressed = new Set()
+        this.keypressed = new Set()
     }
 
     playWalk(){
@@ -119,28 +121,28 @@ class Player{
         temp = new THREE.Vector3().copy(this.scene.position)
         temp.sub(camera.position)
         temp.y = 0;
-        if (this.keypressed['w'] || this.keypressed['ц']){
+        if (this.keypressed.has('w') || this.keypressed.has('ц')){
             temp.normalize();
             this.direction = new THREE.Vector3().copy(this.direction).add(temp)
             this.isWalking = true
         }
-        if (this.keypressed['s'] || this.keypressed['ы']){
+        if (this.keypressed.has('s') || this.keypressed.has('ы')){
             this.direction = new THREE.Vector3().copy(this.direction).add(temp.multiplyScalar(-1))
             this.isWalking = true
         }
 
-        if (this.keypressed['a'] || this.keypressed['ф']){
+        if (this.keypressed.has('a') || this.keypressed.has('ф')){
             temp = new THREE.Vector3(-temp.z, 0, temp.x).multiplyScalar(-1)
-            if (this.keypressed['s']){
+            if (this.keypressed.has('s')){
                 temp.multiplyScalar(-1)
             }
             this.direction = new THREE.Vector3().copy(this.direction).add(temp)
             this.isWalking = true
         }
 
-        if (this.keypressed['d'] || this.keypressed['в']){
+        if (this.keypressed.has('d') || this.keypressed.has('в')){
             temp = new THREE.Vector3(temp.z, 0, -temp.x).multiplyScalar(-1);
-            if (this.keypressed['s']){
+            if (this.keypressed.has('s')){
                 temp.multiplyScalar(-1)
             }
             this.direction = new THREE.Vector3().copy(this.direction).add(temp)
@@ -150,9 +152,11 @@ class Player{
         if (this.isWalking){
             this.direction.normalize()
             this.scene.position.add(this.direction.multiplyScalar(this.speed));
-            camera.position.x += this.direction.x
-            camera.position.z += this.direction.z
-            controls.target = new THREE.Vector3().copy(this.scene.position).add(new THREE.Vector3(0, 1, 0))
+            if (this.isPlayer){
+                camera.position.x += this.direction.x
+                camera.position.z += this.direction.z
+                controls.target = new THREE.Vector3().copy(this.scene.position).add(new THREE.Vector3(0, 1, 0))
+            }
             this.currentTrack = 'Walk'
         } else {
             this.currentTrack = 'Idle'
@@ -170,11 +174,67 @@ class Player{
         this.scene.lookAt(new THREE.Vector3(this.scene.position.x + this.direction.x, 0, this.scene.position.z + this.direction.z))
     }
 
+    sendUpdate(){
+        const currentKeys = Array.from(this.keypressed);
+        const previousKeys = Array.from(this.prevKeypressed);
+
+        const keyStateChanged = currentKeys.length !== previousKeys.length ||
+            currentKeys.some(key => !previousKeys.includes(key)) ||
+            previousKeys.some(key => !currentKeys.includes(key));
+
+        if (keyStateChanged) {
+            this.prevKeypressed = new Set(this.keypressed); // Update previous keys
+            return [currentKeys, this.direction]
+        }
+        return null
+    }
+    applyUpdate(update){
+        console.log(update)
+        this.keypressed = new Set(update[0])
+        if (this.keypressed.has('w') || this.keypressed.has('a') || this.keypressed.has('s') || this.keypressed.has('d')){
+            this.direction = update[1]
+            this.isWalking = true
+        } else {
+            this.direction = new THREE.Vector3()
+            this.isWalking = false
+        }
+    }
+    update(){
+        if (this.isWalking){
+            this.scene.lookAt(new THREE.Vector3(this.scene.position.x + this.direction.x, 0, this.scene.position.z + this.direction.z))
+            this.direction.normalize()
+            this.scene.position.add(this.direction.multiplyScalar(this.speed));
+            this.currentTrack = 'Walk'
+        } else {
+            this.currentTrack = 'Idle'
+        }
+        if (this.lastTrack !== this.currentTrack){
+            if (this.currentTrack == 'Idle'){
+                this.playIdle()
+            }
+            if (this.currentTrack == 'Walk'){
+                this.playWalk()
+            }
+            this.lastTrack = this.currentTrack
+        }
+    }
+
+
 }
 
 
-let player = new Player(robot_glb, "Player")
+let player = new Player(robot_glb, "Player", true)
 scene.add(player.scene)
+const ws = new WebSocket("ws://77.232.23.43:1580/ws");
+
+
+ws.addEventListener('open', () => {
+    player.ws = ws
+});
+
+ws.addEventListener('message', (event) => {
+    console.log(event.data)
+})
 
 let player2 = new Player(robot_glb, "Dummy")
 player2.scene.position.add(new THREE.Vector3(-2, 0, -2))
@@ -184,10 +244,10 @@ player2.playIdle()
 
 
 window.onkeydown = (event) => {
-    player.keypressed[event.key.toLowerCase()] = true
+    player.keypressed.add(event.key.toLowerCase())
 }
 window.onkeyup = (event) => {
-    player.keypressed[event.key.toLowerCase()] = false
+    player.keypressed.delete(event.key.toLowerCase())
     player.isWalking = false
 }
 
@@ -202,6 +262,11 @@ let clock = new THREE.Clock();
 function animate() {
     document.getElementById("fps").innerText = Math.floor(1/clock.getDelta()) + 'fps'
     player.handleMovement()
+    player2.update()
+    let update = player.sendUpdate()
+    if (update){
+        player2.applyUpdate(update)
+    }
     controls.update()
     renderer.render(scene, camera);
     if (player.mixer) {
