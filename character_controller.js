@@ -7,24 +7,33 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement );
 
 const ambientLight = new THREE.AmbientLight(0xFFFFFF); // Soft white light
-const sunLight = new THREE.DirectionalLight(0xFFFFFF); // Soft white light
 scene.add(ambientLight);
-scene.add(sunLight);
+
+
+const light = new THREE.HemisphereLight();
+scene.add(light);
 
 scene.fog = new THREE.Fog( 0xCCCCCC, 10, 50 );
 scene.background = new THREE.Color(0x9873FE);
 
-var floor = new THREE.Mesh(
+let floor = new THREE.Mesh(
     new THREE.PlaneGeometry(1000,1000),
-    new THREE.MeshBasicMaterial({color : 0xBAF22D, side : THREE.DoubleSide})
+    new THREE.MeshStandardMaterial({color : 0xBAF22D, side : THREE.DoubleSide})
 )
+floor.receiveShadow = true;
 floor.rotation.x = Math.PI/2
 scene.add(floor)
+
+let cube = new THREE.Mesh(
+    new THREE.BoxGeometry(),
+    new THREE.MeshBasicMaterial({color : 0xFFFFFF, side : THREE.DoubleSide})
+)
 
 let gridHelper = new THREE.GridHelper( 40, 40 );
 scene.add(gridHelper);
@@ -74,6 +83,7 @@ function createTextSprite(message, color) {
 class Player{
     constructor(glb, text= 'test' ) {
         this.scene = SkeletonUtils.clone(glb.scene); // https://discourse.threejs.org/t/how-to-clone-a-gltf/78858/4
+        this.scene.castShadows = true;
         this.mixer = new THREE.AnimationMixer(this.scene)
         this.idleAction = this.mixer.clipAction(
             robot_glb.animations.find(clip => clip.name == 'Idle')
@@ -89,6 +99,8 @@ class Player{
         this.sprite = createTextSprite(text)
         this.sprite.position.set(0, 1.5, 0)
         this.scene.add(this.sprite)
+        this.prevKeypressed = []
+        this.keypressed = []
     }
 
     playWalk(){
@@ -102,32 +114,33 @@ class Player{
         this.idleAction.reset().fadeIn(0.1);
         this.idleAction.play();
     }
-    handleMovement(keypressed){
+
+    handleMovement(){
         temp = new THREE.Vector3().copy(this.scene.position)
         temp.sub(camera.position)
         temp.y = 0;
-        if (keypressed['w'] || keypressed['ц']){
+        if (this.keypressed['w'] || this.keypressed['ц']){
             temp.normalize();
             this.direction = new THREE.Vector3().copy(this.direction).add(temp)
             this.isWalking = true
         }
-        if (keypressed['s'] || keypressed['ы']){
+        if (this.keypressed['s'] || this.keypressed['ы']){
             this.direction = new THREE.Vector3().copy(this.direction).add(temp.multiplyScalar(-1))
             this.isWalking = true
         }
 
-        if (keypressed['a'] || keypressed['ф']){
+        if (this.keypressed['a'] || this.keypressed['ф']){
             temp = new THREE.Vector3(-temp.z, 0, temp.x).multiplyScalar(-1)
-            if (keypressed['s']){
+            if (this.keypressed['s']){
                 temp.multiplyScalar(-1)
             }
             this.direction = new THREE.Vector3().copy(this.direction).add(temp)
             this.isWalking = true
         }
 
-        if (keypressed['d'] || keypressed['в']){
+        if (this.keypressed['d'] || this.keypressed['в']){
             temp = new THREE.Vector3(temp.z, 0, -temp.x).multiplyScalar(-1);
-            if (keypressed['s']){
+            if (this.keypressed['s']){
                 temp.multiplyScalar(-1)
             }
             this.direction = new THREE.Vector3().copy(this.direction).add(temp)
@@ -160,21 +173,21 @@ class Player{
 }
 
 
-let player = new Player(robot_glb)
+let player = new Player(robot_glb, "Player")
 scene.add(player.scene)
 
-let player2 = new Player(robot_glb)
+let player2 = new Player(robot_glb, "Dummy")
+player2.scene.position.add(new THREE.Vector3(-2, 0, -2))
 scene.add(player2.scene)
 player2.playIdle()
 
 
 
-const keypressed = {}
 window.onkeydown = (event) => {
-    keypressed[event.key.toLowerCase()] = true
+    player.keypressed[event.key.toLowerCase()] = true
 }
 window.onkeyup = (event) => {
-    keypressed[event.key.toLowerCase()] = false
+    player.keypressed[event.key.toLowerCase()] = false
     player.isWalking = false
 }
 
@@ -188,7 +201,7 @@ controls.target = new THREE.Vector3().copy(player.scene.position).add(new THREE.
 let clock = new THREE.Clock();
 function animate() {
     document.getElementById("fps").innerText = Math.floor(1/clock.getDelta()) + 'fps'
-    player.handleMovement(keypressed)
+    player.handleMovement()
     controls.update()
     renderer.render(scene, camera);
     if (player.mixer) {
