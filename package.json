@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "grechabuf": "^2.1.0",
     "three": "^0.175.0"
   },
   "devDependencies": {

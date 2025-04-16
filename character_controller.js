@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import * as greachabuf from 'grechabuf'
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -30,11 +31,16 @@ floor.receiveShadow = true;
 floor.rotation.x = Math.PI/2
 scene.add(floor)
 
-let cube = new THREE.Mesh(
-    new THREE.BoxGeometry(),
-    new THREE.MeshBasicMaterial({color : 0xFFFFFF, side : THREE.DoubleSide})
-)
 
+const moveMessageStruct = greachabuf.createStruct({
+    id : greachabuf.u32(),
+    moving : greachabuf.bool(),
+    direction : greachabuf.array(
+        greachabuf.f32(),
+        greachabuf.f32(),
+        greachabuf.f32(),
+    ),
+})
 let gridHelper = new THREE.GridHelper( 40, 40 );
 scene.add(gridHelper);
 
@@ -59,7 +65,6 @@ function loadModel(url) {
 }
 
 let robot_glb = await loadModel('./models/walking.glb')
-
 function createTextSprite(message, color) {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -182,23 +187,33 @@ class Player{
             currentKeys.some(key => !previousKeys.includes(key)) ||
             previousKeys.some(key => !currentKeys.includes(key));
 
+
+        let payload = moveMessageStruct.serialize({
+            id : 0,
+            moving: this.isWalking,
+            direction : [this.direction.x, this.direction.y, this.direction.z],
+        })
+
         if (keyStateChanged) {
             this.prevKeypressed = new Set(this.keypressed); // Update previous keys
-            return [currentKeys, this.direction]
+            // let directionBytes = new Float32Array([...this.direction]).buffer
+            // console.log(directionBytes, payload)
+            ws.send(payload)
         }
-        return null
+        // return [currentKeys, this.direction]
+        return payload
     }
-    applyUpdate(update){
-        console.log(update)
-        this.keypressed = new Set(update[0])
-        if (this.keypressed.has('w') || this.keypressed.has('a') || this.keypressed.has('s') || this.keypressed.has('d')){
-            this.direction = update[1]
-            this.isWalking = true
+
+    applyUpdate(payload){
+        let update = moveMessageStruct.deserialize(new DataView(payload))
+        this.isWalking = update.moving
+        if (this.isWalking){
+            this.direction = new THREE.Vector3(...update.direction)
         } else {
             this.direction = new THREE.Vector3()
-            this.isWalking = false
         }
     }
+
     update(){
         if (this.isWalking){
             this.scene.lookAt(new THREE.Vector3(this.scene.position.x + this.direction.x, 0, this.scene.position.z + this.direction.z))
@@ -225,16 +240,6 @@ class Player{
 
 let player = new Player(robot_glb, "Player", true)
 scene.add(player.scene)
-const ws = new WebSocket("ws://77.232.23.43:1580/ws");
-
-
-ws.addEventListener('open', () => {
-    player.ws = ws
-});
-
-ws.addEventListener('message', (event) => {
-    console.log(event.data)
-})
 
 let player2 = new Player(robot_glb, "Dummy")
 player2.scene.position.add(new THREE.Vector3(-2, 0, -2))
@@ -262,11 +267,10 @@ let clock = new THREE.Clock();
 function animate() {
     document.getElementById("fps").innerText = Math.floor(1/clock.getDelta()) + 'fps'
     player.handleMovement()
+    player.sendUpdate()
     player2.update()
-    let update = player.sendUpdate()
-    if (update){
-        player2.applyUpdate(update)
-    }
+
+
     controls.update()
     renderer.render(scene, camera);
     if (player.mixer) {
@@ -284,3 +288,21 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+const ws = new WebSocket("ws://77.232.23.43:1580/ws");
+
+
+ws.addEventListener('open', () => {
+    player.ws = ws
+});
+
+ws.addEventListener('message', (event) => {
+    const blob = event.data;
+       blob.arrayBuffer()
+        .then(arrayBuffer => {
+            player2.applyUpdate(arrayBuffer)
+        })
+        .catch(error => {
+            console.error(error);
+        });
+})

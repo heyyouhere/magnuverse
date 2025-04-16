@@ -2,7 +2,9 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"strings"
+	// "strings"
+    "bytes"
+    "encoding/binary"
 
 	"github.com/gorilla/websocket"
 )
@@ -71,7 +73,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
     conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("id:%d", player.id)))
 
     for connection, other_player := range connections{
-        fmt.Printf("%s", other_player.position)
         conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("player_joined:%d:%d:%d:%d", other_player.id, other_player.position.x, other_player.position.y, other_player.position.z)))
         connection.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("player_joined:%d:%d:%d:%d", player.id, player.position.x, player.position.y, player.position.z)))
     }
@@ -80,40 +81,55 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
     for {
         _, msg, err := conn.ReadMessage()
         if err != nil {
-            fmt.Println("Player left")
-            delete(connections, conn)
-            for _, other_player := range connections{
-                fmt.Printf("Sending notications to id %d\n", other_player.id)
-                err  = other_player.conn.WriteMessage(websocket.TextMessage,
-                                                    []byte(fmt.Sprintf("player_left:%d", player.id)))
-                if err != nil {
-                    fmt.Println("This Error while writing message:", err)
-                    other_player.conn.Close()
-                }
-            }
-            break
+            fmt.Printf("%s", err)
+            conn.Close()
         }
-        switch strings.Split(string(msg), ":")[1]{
-            case "up":
-                player.position.z += 1;
-                break;
-            case "back":
-                player.position.z += -1;
-                break;
-            case "left":
-                player.position.x += -1;
-                break;
-            case "right":
-                player.position.x += 1;
-                break;
-            }
-        for _, other_player := range connections{
-            fmt.Printf("Sending notications about movement to id %d\n", other_player.id)
-            err  = other_player.conn.WriteMessage(websocket.TextMessage, msg)
-            if err != nil {
-                fmt.Println("This Error while writing message:", err)
-            }
+        direction := [3]float32{}
+        fmt.Printf("msg size: %d\n", len(msg[:1]))
+        fmt.Printf("first byte: %d\n", msg[:1])
+        reader := bytes.NewReader(msg[1:])
+        err = binary.Read(reader, binary.BigEndian, &direction)
+        if err != nil {
+            fmt.Println("Error reading binary data:", err)
+            return
         }
+        conn.WriteMessage(websocket.BinaryMessage, msg)
+
+        // if err != nil {
+        //     fmt.Println("Player left")
+        //     delete(connections, conn)
+        //     for _, other_player := range connections{
+        //         fmt.Printf("Sending notications to id %d\n", other_player.id)
+        //         err  = other_player.conn.WriteMessage(websocket.TextMessage,
+        //                                             []byte(fmt.Sprintf("player_left:%d", player.id)))
+        //         if err != nil {
+        //             fmt.Println("This Error while writing message:", err)
+        //             other_player.conn.Close()
+        //         }
+        //     }
+        //     break
+        // }
+        // switch strings.Split(string(msg), ":")[1]{
+        //     case "up":
+        //         player.position.z += 1;
+        //         break;
+        //     case "back":
+        //         player.position.z += -1;
+        //         break;
+        //     case "left":
+        //         player.position.x += -1;
+        //         break;
+        //     case "right":
+        //         player.position.x += 1;
+        //         break;
+        //     }
+        // for _, other_player := range connections{
+        //     fmt.Printf("Sending notications about movement to id %d\n", other_player.id)
+        //     err  = other_player.conn.WriteMessage(websocket.TextMessage, msg)
+        //     if err != nil {
+        //         fmt.Println("This Error while writing message:", err)
+        //     }
+        // }
     }
 }
 
