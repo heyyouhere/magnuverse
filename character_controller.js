@@ -32,7 +32,16 @@ floor.rotation.x = Math.PI/2
 scene.add(floor)
 
 
+const players = new Map();
+
+const WSMessageType = Object.freeze({
+    PLAYER_WELCOME: 0,
+    PLAYER_JOIN: 1,
+    PLAYER_LEFT: 2,
+    PLAYER_MOVE: 3,
+});
 const moveMessageStruct = greachabuf.createStruct({
+    msgType : greachabuf.u8(),
     id : greachabuf.u32(),
     moving : greachabuf.bool(),
     direction : greachabuf.array(
@@ -86,7 +95,8 @@ function createTextSprite(message, color) {
 
 
 class Player{
-    constructor(glb, ws, text= 'test', isPlayer = false ) {
+    constructor(glb, ws, text='test', isPlayer=false ) {
+        this.id = null
         this.ws = ws
         this.isPlayer = isPlayer
         this.scene = SkeletonUtils.clone(glb.scene); // https://discourse.threejs.org/t/how-to-clone-a-gltf/78858/4
@@ -189,7 +199,8 @@ class Player{
 
 
         let payload = moveMessageStruct.serialize({
-            id : 0,
+            msgType : WSMessageType.PLAYER_MOVE,
+            id : this.id,
             moving: this.isWalking,
             direction : [this.direction.x, this.direction.y, this.direction.z],
         })
@@ -198,14 +209,21 @@ class Player{
             this.prevKeypressed = new Set(this.keypressed); // Update previous keys
             // let directionBytes = new Float32Array([...this.direction]).buffer
             // console.log(directionBytes, payload)
-            ws.send(payload)
+            if (this.ws){
+                this.ws.send(payload)
+            }
         }
         // return [currentKeys, this.direction]
         return payload
     }
 
+
+/**
+ * @param {DataView} payload
+ */
     applyUpdate(payload){
-        let update = moveMessageStruct.deserialize(new DataView(payload))
+        let update = moveMessageStruct.deserialize(payload)
+        console.log(update)
         this.isWalking = update.moving
         if (this.isWalking){
             this.direction = new THREE.Vector3(...update.direction)
@@ -238,10 +256,10 @@ class Player{
 }
 
 
-let player = new Player(robot_glb, "Player", true)
+let player = new Player(robot_glb, null,  "Player", true)
 scene.add(player.scene)
 
-let player2 = new Player(robot_glb, "Dummy")
+let player2 = new Player(robot_glb, null, "Dummy")
 player2.scene.position.add(new THREE.Vector3(-2, 0, -2))
 scene.add(player2.scene)
 player2.playIdle()
@@ -267,18 +285,17 @@ let clock = new THREE.Clock();
 function animate() {
     document.getElementById("fps").innerText = Math.floor(1/clock.getDelta()) + 'fps'
     player.handleMovement()
+    player.mixer.update(0.01)
     player.sendUpdate()
-    player2.update()
 
+
+    players.forEach((p) => {
+        p.mixer.update(0.01);
+        p.update()
+    });
 
     controls.update()
     renderer.render(scene, camera);
-    if (player.mixer) {
-        player.mixer.update(0.01);
-    }
-    if (player2.mixer) {
-        player2.mixer.update(0.01);
-    }
     requestAnimationFrame(animate);
 }
 animate();
@@ -289,6 +306,13 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+console.log(renderer.domElement)
+renderer.domElement.addEventListener("blur", function(event) {
+    console.log(event)
+    console.log("Tab is not focused");
+    player.keypressed.clear()
+});
+
 const ws = new WebSocket("ws://77.232.23.43:1580/ws");
 
 
@@ -296,11 +320,55 @@ ws.addEventListener('open', () => {
     player.ws = ws
 });
 
+/**
+ * @param {ArrayBuffer} arrayBuffer
+ */
+function parse_ws_message(arrayBuffer){
+    let view = new DataView(arrayBuffer)
+    switch (view.getUint8()){
+        case WSMessageType.PLAYER_WELCOME:
+            player.id = view.getUint32(1)
+            console.log("Setting my id to:", player.id)
+            break
+        case WSMessageType.PLAYER_JOIN:
+            const joined_id = view.getUint32(1)
+            console.log("player joined")
+            if (joined_id != player.id){
+                let new_player = new Player(robot_glb, null, joined_id)
+                players.set(joined_id, new_player);
+                scene.add(new_player.scene)
+            }
+            break
+        case WSMessageType.PLAYER_LEFT:
+            const left_id = view.getUint32(1)
+            console.log("player left", left_id)
+            let left_player = players.get(left_id)
+            scene.remove(left_player.scene)
+            players.delete(left_id)
+            break
+
+        case WSMessageType.PLAYER_MOVE:
+            const moved_id = view.getUint32(1)
+            if (moved_id != player.id){
+                let moved_player = players.get(moved_id)
+                moved_player.applyUpdate(view)
+            }
+            break
+
+        default:
+            console.log("buffer:", view)
+            console.error("unknown command byte:", view.getUint8())
+            break
+
+    }
+
+}
+
 ws.addEventListener('message', (event) => {
     const blob = event.data;
-       blob.arrayBuffer()
+    blob.arrayBuffer()
         .then(arrayBuffer => {
-            player2.applyUpdate(arrayBuffer)
+            parse_ws_message(arrayBuffer)
         })
         .catch(error => {
             console.error(error);
