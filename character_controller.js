@@ -59,6 +59,26 @@ const moveMessageStruct = greachabuf.createStruct({
         greachabuf.f32(),
         greachabuf.f32(),
     ),
+    position : greachabuf.array(
+        greachabuf.f32(),
+        greachabuf.f32(),
+        greachabuf.f32(),
+    ),
+})
+const joinedMessage = greachabuf.createStruct({
+    msgType : greachabuf.u8(),
+    id : greachabuf.u32(),
+    moving : greachabuf.bool(),
+    direction : greachabuf.array(
+        greachabuf.f32(),
+        greachabuf.f32(),
+        greachabuf.f32(),
+    ),
+    position : greachabuf.array(
+        greachabuf.f32(),
+        greachabuf.f32(),
+        greachabuf.f32(),
+    ),
 })
 let gridHelper = new THREE.GridHelper( 40, 40 );
 scene.add(gridHelper);
@@ -212,6 +232,7 @@ class Player{
             id : this.id,
             moving: this.isWalking,
             direction : [this.direction.x, this.direction.y, this.direction.z],
+            position : [this.scene.position.x,this.scene.position.y, this.scene.position.z]
         })
 
         if (keyStateChanged) {
@@ -232,13 +253,10 @@ class Player{
  */
     applyUpdate(payload){
         let update = moveMessageStruct.deserialize(payload)
-        console.log(update)
         this.isWalking = update.moving
-        if (this.isWalking){
-            this.direction = new THREE.Vector3(...update.direction)
-        } else {
-            this.direction = new THREE.Vector3()
-        }
+        this.direction = new THREE.Vector3(...update.direction)
+        this.scene.position.set(...update.position)
+        this.scene.lookAt(new THREE.Vector3(this.scene.position.x + this.direction.x, 0, this.scene.position.z + this.direction.z))
     }
 
     update(){
@@ -389,10 +407,10 @@ function parse_ws_message(arrayBuffer){
             break
         case WSMessageType.PLAYER_JOIN:
             const joined_id = view.getUint32(1)
-            console.log("player joined")
             if (joined_id != player.id){
                 let new_player = new Player(robot_glb, null, joined_id)
                 players.set(joined_id, new_player);
+                new_player.applyUpdate(view)
                 scene.add(new_player.scene)
             }
             break
