@@ -1,3 +1,4 @@
 node_modules/
 magnuverse
 tmp/
+vite.config.js
