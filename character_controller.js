@@ -3,15 +3,25 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import * as greachabuf from 'grechabuf'
+import nipplejs from 'nipplejs';
+
+
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-document.body.appendChild(renderer.domElement);
+document.getElementById('game_canvas').appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement );
+controls.enableZoom = false; // Set to false if you want to disable zoom
+controls.enablePan = false; // Set to false if you want to disable panning
+// controls.enableRotate = false;
+controls.screenSpacePanning = false; // Disable panning in screen space
+controls.maxPolarAngle = Math.PI / 2; // Limit vertical rotation
+controls.minPolarAngle = 0; // Limit vertical rotation
+
 
 const ambientLight = new THREE.AmbientLight(0xFFFFFF); // Soft white light
 scene.add(ambientLight);
@@ -91,7 +101,6 @@ function createTextSprite(message, color) {
 
     return sprite;
 }
-
 
 
 class Player{
@@ -274,8 +283,56 @@ window.onkeyup = (event) => {
     player.isWalking = false
 }
 
-let temp = new THREE.Vector3();
 
+const directions = {
+    'up':    'w',
+    'right': 'd',
+    'left':  'a',
+    'down':  's',
+}
+
+if (/Mobi|Android/i.test(navigator.userAgent)){
+// if (true){
+    const zone_el =  document.getElementById("joystick_container");
+    zone_el.hidden = false;
+    var options = {
+        zone: zone_el,                   // active zone
+        color: "#171717FF",
+        size: 400,
+        // threshold: 0.1,               // before triggering a directional event
+        // fadeTime: Integer,              // transition time
+        multitouch: false,
+        // maxNumberOfNipples: 2,     // when multitouch, what is too many?
+        dataOnly: false,              // no dom element whatsoever
+        position: {left : "50%", top: "50%"},               // preset position for 'static' mode
+        mode: 'static',                   // 'dynamic', 'static' or 'semi'
+        // restJoystick: Boolean|Object,   // Re-center joystick on rest state
+        // restOpacity: Number,            // opacity when not 'dynamic' and rested
+        // lockX: Boolean,                 // only move on the X axis
+        // lockY: Boolean,                 // only move on the Y axis
+        // catchDistance: Number,          // distance to recycle previous joystick in
+        //                                 // 'semi' mode
+        shape: "circle",                  // 'circle' or 'square'
+        dynamicPage: false,           // Enable if the page has dynamically visible elements
+        follow: false,                // Makes the joystick follow the thumbstick
+    };
+
+    var nipple = nipplejs.create(options);
+    let prev_dir = null;
+    nipple.on('dir', (_, data) => {
+        console.log(data)
+        if (prev_dir != directions[data.direction.angle]){
+            player.keypressed.delete(prev_dir)
+            player.keypressed.add(directions[data.direction.angle])
+            prev_dir = directions[data.direction.angle]
+        }
+    }).on('end', () => {
+        player.keypressed.delete(prev_dir)
+        player.isWalking = false
+    })
+}
+
+let temp = new THREE.Vector3();
 player.playIdle()
 camera.position.y = 2
 camera.position.z = 4
@@ -283,7 +340,7 @@ controls.target = new THREE.Vector3().copy(player.scene.position).add(new THREE.
 
 let clock = new THREE.Clock();
 function animate() {
-    document.getElementById("fps").innerText = Math.floor(1/clock.getDelta()) + 'fps'
+    // document.getElementById("fps").innerText = Math.floor(1/clock.getDelta()) + 'fps'
     player.handleMovement()
     player.mixer.update(0.01)
     player.sendUpdate()
