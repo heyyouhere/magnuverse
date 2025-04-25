@@ -11,6 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "grechabuf": "^2.1.0",
+    "nipplejs": "^0.10.2",
     "three": "^0.175.0"
   },
   "devDependencies": {
