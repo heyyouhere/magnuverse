@@ -1,14 +1,19 @@
 package main
+
 import (
 	"fmt"
+	"io"
 	"net/http"
 
-	// "strings"
 	"bytes"
 	"encoding/binary"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
+
+
+var mu sync.Mutex
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -117,7 +122,9 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	buf := bytes.Buffer{}
 	welcomeMessage := WelcomeMessage{uint8(MSG_WELCOME), uint32(player.id)}
 	binary.Write(&buf, binary.BigEndian, welcomeMessage)
+	mu.Lock()
 	conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+	mu.Unlock()
 
 
 	for connection, other_player := range connections{
@@ -132,7 +139,9 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			[3]float32{other_player.position.x, other_player.position.y, other_player.position.z },
 		}
 		binary.Write(&buf, binary.BigEndian, joinedMessage)
+		mu.Lock()
 		err = conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+		mu.Unlock()
 		if err != nil{
 			fmt.Printf("Could not write to ws conn %+v, cause of %s\n", conn, err)
 		}
@@ -149,7 +158,9 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			[3]float32{player.position.x, player.position.y, player.position.z },
 		}
 		binary.Write(&buf, binary.BigEndian, joinedMessage)
+		mu.Lock()
 		err = connection.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+		mu.Unlock()
 		if err != nil{
 			fmt.Printf("Could not write to ws conn %+v, cause of %s\n", connection, err)
 		}
@@ -157,87 +168,60 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	connections[conn] = &player
 
-	for {
-		_, msg, err := conn.ReadMessage()
-		if err != nil{
-			fmt.Printf("%d closed connection\n", player.id)
-			delete(connections, conn)
-			var buff bytes.Buffer
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil{
+				fmt.Printf("%d closed connection\n", player.id)
+				delete(connections, conn)
+				var buff bytes.Buffer
+				for connection, otherPlayer := range connections {
+					leftMessage := LeftdMessage{uint8(MSG_LEFT), uint32(player.id)}
+					binary.Write(&buff, binary.BigEndian, leftMessage)
+					mu.Lock()
+					err = connection.WriteMessage(websocket.BinaryMessage, buff.Bytes())
+					mu.Unlock()
+					if err != nil{ fmt.Printf("Could not write to ws conn %d, cause of %s\n", otherPlayer.id, err) }
+					fmt.Printf("Notified player %d that player %d has left\n", otherPlayer.id, player.id)
+					buff.Reset()
+				}
+				conn.Close()
+			}
+			movedMessage := MovedMessage{}
+			reader := bytes.NewReader(msg)
+			err = binary.Read(reader, binary.BigEndian, &movedMessage)
+			if err != nil {
+				if err == io.EOF{
+					fmt.Println("Caught EOF", err)
+				}
+				return
+			}
+
+			player.isMoving = movedMessage.IsMoving
+			player.direction = Vec3{
+				movedMessage.Direction[0],
+				movedMessage.Direction[1],
+				movedMessage.Direction[2],
+			}
+			player.position = Vec3{
+				movedMessage.Position[0],
+				movedMessage.Position[1],
+				movedMessage.Position[2],
+			}
+
+
+			var buf bytes.Buffer
+			binary.Write(&buf, binary.BigEndian, movedMessage)
+			mu.Lock()
+			conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+			mu.Unlock()
 			for connection, otherPlayer := range connections {
-				leftMessage := LeftdMessage{uint8(MSG_LEFT), uint32(player.id)}
-				binary.Write(&buff, binary.BigEndian, leftMessage)
-				err = connection.WriteMessage(websocket.BinaryMessage, buff.Bytes())
-				if err != nil{ fmt.Printf("Could not write to ws conn %d, cause of %s\n", otherPlayer.id, err) }
-				fmt.Printf("Notified player %d that player %d has left\n", otherPlayer.id, player.id)
-				buff.Reset()
-			}
-			conn.Close()
-		}
-		movedMessage := MovedMessage{}
-		reader := bytes.NewReader(msg)
-		err = binary.Read(reader, binary.BigEndian, &movedMessage)
-		if err != nil {
-			fmt.Println("Error reading binary data:", err)
-			return
-		}
-		player.isMoving = movedMessage.IsMoving
-		player.direction = Vec3{
-			movedMessage.Direction[0],
-			movedMessage.Direction[1],
-			movedMessage.Direction[2],
-		}
-		player.position = Vec3{
-			movedMessage.Position[0],
-			movedMessage.Position[1],
-			movedMessage.Position[2],
-		}
-
-
-		var buf bytes.Buffer
-		binary.Write(&buf, binary.BigEndian, movedMessage)
-		conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
-		for connection, otherPlayer := range connections {
-			if otherPlayer.id != player.id{
-				connection.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+				if otherPlayer.id != player.id{
+					mu.Lock()
+					connection.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+					mu.Unlock()
+				}
 			}
 		}
-
-		// if err != nil {
-		//     fmt.Println("Player left")
-		//     delete(connections, conn)
-		//     for _, other_player := range connections{
-		//         fmt.Printf("Sending notications to id %d\n", other_player.id)
-		//         err  = other_player.conn.WriteMessage(websocket.TextMessage,
-		//                                             []byte(fmt.Sprintf("player_left:%d", player.id)))
-		//         if err != nil {
-		//             fmt.Println("This Error while writing message:", err)
-		//             other_player.conn.Close()
-		//         }
-		//     }
-		//     break
-		// }
-		// switch strings.Split(string(msg), ":")[1]{
-		//     case "up":
-		//         player.position.z += 1;
-		//         break;
-		//     case "back":
-		//         player.position.z += -1;
-		//         break;
-		//     case "left":
-		//         player.position.x += -1;
-		//         break;
-		//     case "right":
-		//         player.position.x += 1;
-		//         break;
-		//     }
-		// for _, other_player := range connections{
-		//     fmt.Printf("Sending notications about movement to id %d\n", other_player.id)
-		//     err  = other_player.conn.WriteMessage(websocket.TextMessage, msg)
-		//     if err != nil {
-		//         fmt.Println("This Error while writing message:", err)
-		//     }
-		// }
-	}
 }
 
 func redirectToVite(w http.ResponseWriter, r *http.Request) {

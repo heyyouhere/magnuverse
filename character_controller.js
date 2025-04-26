@@ -141,12 +141,15 @@ class Player{
         this.speed = 0.03
         this.lastTrack = this.lastTrack
         this.currentTrack = 'Idle'
-        this.direction = new THREE.Vector3(0,0,1);
         this.sprite = createTextSprite(text)
         this.sprite.position.set(0, 1.5, 0)
         this.scene.add(this.sprite)
-        this.prevKeypressed = new Set()
+
+        this.direction = new THREE.Vector3(0,0,1);
+        this.prevDirection = new THREE.Vector3(0,0,1);
+
         this.keypressed = new Set()
+        this.prevKeypressed = new Set()
     }
 
     playWalk(){
@@ -212,7 +215,7 @@ class Player{
             if (this.currentTrack == 'Walk'){
                 this.playWalk()
             }
-            this.lastTrack = this.currentTrack
+this.lastTrack = this.currentTrack
         }
 
         this.scene.lookAt(new THREE.Vector3(this.scene.position.x + this.direction.x, 0, this.scene.position.z + this.direction.z))
@@ -235,10 +238,10 @@ class Player{
             position : [this.scene.position.x,this.scene.position.y, this.scene.position.z]
         })
 
-        if (keyStateChanged) {
-            this.prevKeypressed = new Set(this.keypressed); // Update previous keys
-            // let directionBytes = new Float32Array([...this.direction]).buffer
-            // console.log(directionBytes, payload)
+        if (keyStateChanged || !(this.direction.equals(this.prevDirection))) {
+            this.prevKeypressed = new Set(this.keypressed);
+            this.prevDirection = new THREE.Vector3().copy(this.direction)
+
             if (this.ws){
                 this.ws.send(payload)
             }
@@ -286,10 +289,6 @@ class Player{
 let player = new Player(robot_glb, null,  "Player", true)
 scene.add(player.scene)
 
-let player2 = new Player(robot_glb, null, "Dummy")
-player2.scene.position.add(new THREE.Vector3(-2, 0, -2))
-scene.add(player2.scene)
-player2.playIdle()
 
 
 
