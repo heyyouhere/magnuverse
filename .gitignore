@@ -2,3 +2,5 @@ node_modules/
 magnuverse
 tmp/
 vite.config.js
+dist/
+test_deploy.sh

@@ -1,30 +1,47 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+// import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
 import * as greachabuf from 'grechabuf'
+
 import nipplejs from 'nipplejs';
 
 
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
 document.getElementById('game_canvas').appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement );
-controls.enableZoom = false; // Set to false if you want to disable zoom
-controls.enablePan = false; // Set to false if you want to disable panning
+controls.enableZoom = false;
+controls.enablePan = false;
 // controls.enableRotate = false;
-controls.screenSpacePanning = false; // Disable panning in screen space
-controls.maxPolarAngle = Math.PI / 2; // Limit vertical rotation
-controls.minPolarAngle = 0; // Limit vertical rotation
+controls.screenSpacePanning = false;
+controls.maxPolarAngle = Math.PI / 2;
+controls.minPolarAngle = Math.PI / 4;
 
 
-const ambientLight = new THREE.AmbientLight(0xFFFFFF); // Soft white light
-scene.add(ambientLight);
+// const ambientLight = new THREE.AmbientLight(0xFFFFFF); // Soft white light
+// scene.add(ambientLight);
+
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+directionalLight.position.set(5, 10, 7);
+
+
+directionalLight.castShadow = true;
+directionalLight.shadow.mapSize.width = 512;
+directionalLight.shadow.mapSize.height = 512;
+directionalLight.shadow.camera.near = 0.5;
+directionalLight.shadow.camera.far = 50;
+
+
+scene.add(directionalLight);
+
 
 
 const light = new THREE.HemisphereLight();
@@ -33,13 +50,14 @@ scene.add(light);
 scene.fog = new THREE.Fog( 0xCCCCCC, 10, 50 );
 scene.background = new THREE.Color(0x9873FE);
 
-let floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(1000,1000),
-    new THREE.MeshStandardMaterial({color : 0xBAF22D, side : THREE.DoubleSide})
-)
-floor.receiveShadow = true;
-floor.rotation.x = Math.PI/2
-scene.add(floor)
+
+
+
+
+
+
+
+
 
 
 const players = new Map();
@@ -50,6 +68,7 @@ const WSMessageType = Object.freeze({
     PLAYER_LEFT: 2,
     PLAYER_MOVE: 3,
 });
+
 const moveMessageStruct = greachabuf.createStruct({
     msgType : greachabuf.u8(),
     id : greachabuf.u32(),
@@ -64,6 +83,11 @@ const moveMessageStruct = greachabuf.createStruct({
         greachabuf.f32(),
         greachabuf.f32(),
     ),
+});
+
+const welcomeStruct = greachabuf.createStruct({
+    msgType : greachabuf.u8(),
+    userName : greachabuf.string()
 })
 const joinedMessage = greachabuf.createStruct({
     msgType : greachabuf.u8(),
@@ -79,9 +103,9 @@ const joinedMessage = greachabuf.createStruct({
         greachabuf.f32(),
         greachabuf.f32(),
     ),
+    nickname : greachabuf.string(),
 })
-let gridHelper = new THREE.GridHelper( 40, 40 );
-scene.add(gridHelper);
+
 
 
 function onProgress(p){
@@ -102,6 +126,25 @@ function loadModel(url) {
         );
     });
 }
+
+// let metaverse = await loadModel('./public/scene.glb')
+// metaverse.scene.position.add(new THREE.Vector3(10, 1.6, -12));
+// metaverse.scene.rotateY(3.14 - 1)
+// metaverse.scene.castShadows = true;
+// metaverse.scene.receiveShadows = true;
+// scene.add(metaverse.scene)
+let floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(1000,1000),
+    new THREE.MeshStandardMaterial({color : 0xBAF22D})
+)
+floor.rotation.x = -Math.PI/2
+floor.receiveShadow = true;
+floor.castShadow  = true;
+scene.add(floor)
+
+
+
+
 
 let robot_glb = await loadModel('./models/walking.glb')
 function createTextSprite(message, color) {
@@ -126,6 +169,7 @@ function createTextSprite(message, color) {
 class Player{
     constructor(glb, ws, text='test', isPlayer=false ) {
         this.id = null
+        this.username = text
         this.ws = ws
         this.isPlayer = isPlayer
         this.scene = SkeletonUtils.clone(glb.scene); // https://discourse.threejs.org/t/how-to-clone-a-gltf/78858/4
@@ -141,7 +185,7 @@ class Player{
         this.speed = 0.03
         this.lastTrack = this.lastTrack
         this.currentTrack = 'Idle'
-        this.sprite = createTextSprite(text)
+        this.sprite = createTextSprite(this.username)
         this.sprite.position.set(0, 1.5, 0)
         this.scene.add(this.sprite)
 
@@ -246,7 +290,7 @@ this.lastTrack = this.currentTrack
                 this.ws.send(payload)
             }
         }
-        // return [currentKeys, this.direction]
+
         return payload
     }
 
@@ -254,8 +298,13 @@ this.lastTrack = this.currentTrack
 /**
  * @param {DataView} payload
  */
-    applyUpdate(payload){
-        let update = moveMessageStruct.deserialize(payload)
+    applyUpdate(update){
+        this.isWalking = update.moving
+        this.direction = new THREE.Vector3(...update.direction)
+        this.scene.position.set(...update.position)
+        this.scene.lookAt(new THREE.Vector3(this.scene.position.x + this.direction.x, 0, this.scene.position.z + this.direction.z))
+    }
+    applyJoin(update){
         this.isWalking = update.moving
         this.direction = new THREE.Vector3(...update.direction)
         this.scene.position.set(...update.position)
@@ -285,10 +334,21 @@ this.lastTrack = this.currentTrack
 
 }
 
+const telegram = window.Telegram;
+let playerName = 'Player'
+if (telegram){
+    const webApp = telegram.WebApp;
 
-let player = new Player(robot_glb, null,  "Player", true)
+    webApp.disableVerticalSwipes()
+    if (webApp?.initDataUnsafe?.user?.username){
+        playerName = webApp.initDataUnsafe.user.username
+    }
+} else {
+    console.error("Not in telegram enviroment")
+}
+
+let player = new Player(robot_glb, null, playerName, true)
 scene.add(player.scene)
-
 
 
 
@@ -313,7 +373,7 @@ if (/Mobi|Android/i.test(navigator.userAgent)){
     const zone_el =  document.getElementById("joystick_container");
     zone_el.hidden = false;
     var options = {
-        zone: zone_el,                   // active zone
+        zone: zone_el,
         color: "#171717FF",
         size: 400,
         // threshold: 0.1,               // before triggering a directional event
@@ -355,7 +415,6 @@ camera.position.y = 2
 camera.position.z = 4
 controls.target = new THREE.Vector3().copy(player.scene.position).add(new THREE.Vector3(0, 1, 0))
 
-let clock = new THREE.Clock();
 function animate() {
     // document.getElementById("fps").innerText = Math.floor(1/clock.getDelta()) + 'fps'
     player.handleMovement()
@@ -380,18 +439,23 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-console.log(renderer.domElement)
 renderer.domElement.addEventListener("blur", function(event) {
     console.log(event)
     console.log("Tab is not focused");
     player.keypressed.clear()
 });
 
-const ws = new WebSocket("ws://77.232.23.43:1580/ws");
+const ws = new WebSocket("wss://heyyouhere.io:1580/ws");
 
 
 ws.addEventListener('open', () => {
     player.ws = ws
+    const welcomeMessage = welcomeStruct.serialize({
+        msgType : WSMessageType.PLAYER_WELCOME,
+        userName : player.username
+    })
+    player.ws.send(welcomeMessage)
+    console.log("sent welcome message")
 });
 
 /**
@@ -407,9 +471,11 @@ function parse_ws_message(arrayBuffer){
         case WSMessageType.PLAYER_JOIN:
             const joined_id = view.getUint32(1)
             if (joined_id != player.id){
-                let new_player = new Player(robot_glb, null, joined_id)
+                let update = joinedMessage.deserialize(view)
+                console.log(update.nickname)
+                let new_player = new Player(robot_glb, null, update.nickname)
                 players.set(joined_id, new_player);
-                new_player.applyUpdate(view)
+                new_player.applyJoin(update)
                 scene.add(new_player.scene)
             }
             break
@@ -425,7 +491,8 @@ function parse_ws_message(arrayBuffer){
             const moved_id = view.getUint32(1)
             if (moved_id != player.id){
                 let moved_player = players.get(moved_id)
-                moved_player.applyUpdate(view)
+                let update = moveMessageStruct.deserialize(view)
+                moved_player.applyUpdate(update)
             }
             break
 

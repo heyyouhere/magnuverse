@@ -40,6 +40,8 @@ type Player struct{
 	isMoving uint8
 	conn *websocket.Conn
 	color Color
+	nicknameLen uint8
+	nickname [255]byte
 }
 
 /*
@@ -75,14 +77,22 @@ type WelcomeMessage struct{
 	PlayerId uint32
 }
 
+type NicknameMessage struct{
+	MessageType uint8
+	LoginLen uint8
+	Login []byte
+}
+
 type JoinedMessage struct{
 	MessageType uint8
 	PlayerId uint32
-	isMoving uint8
+	IsMoving uint8
 	DirectionSize uint8
 	Direction [3]float32
 	PositionSize uint8
-	position [3]float32
+	Position [3]float32
+	Loginlen uint8
+	Login [255]byte
 }
 
 type LeftdMessage struct{
@@ -116,6 +126,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		conn : conn,
 		color : "FFFFFF",
 		id: currentId,
+		nickname: [255]byte{},
 	}
 	currentId++
 
@@ -125,6 +136,45 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
 	mu.Unlock()
+
+
+	fmt.Printf("Waiting for username...\n")
+	_, msg, err := conn.ReadMessage()
+	if err != nil{
+		fmt.Printf("Error: can't user message %s\n", err)
+	}
+	fmt.Printf("%+v\n", msg)
+
+	buf.Reset()
+	nicknameMessage := NicknameMessage{}
+	reader := bytes.NewReader(msg)
+	err = binary.Read(reader, binary.BigEndian, &nicknameMessage.MessageType)
+	if err != nil {
+		if err == io.EOF{
+			fmt.Printf("Caught EOF.\n")
+		}
+		fmt.Printf("Other error: %s\n", err)
+	}
+	err = binary.Read(reader, binary.BigEndian, &nicknameMessage.LoginLen)
+	if err != nil {
+		if err == io.EOF{
+			fmt.Printf("Caught EOF.\n")
+		}
+		fmt.Printf("Other error: %s\n", err)
+	}
+	player.nicknameLen = nicknameMessage.LoginLen
+
+	nameBytes := make([]byte, nicknameMessage.LoginLen)
+	if _, err := reader.Read(nameBytes); err != nil {
+		fmt.Printf("Could not parse login: %s", err)
+	}
+	fmt.Printf("Name bytes: %s\n", nameBytes)
+
+	copy(nicknameMessage.Login[:], nameBytes)
+	fmt.Printf("%+v\n", nicknameMessage);
+	copy(player.nickname[:], nameBytes)
+	fmt.Printf("%+v\n", player);
+
 
 
 	for connection, other_player := range connections{
@@ -137,8 +187,13 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			[3]float32{other_player.direction.x, other_player.direction.y, other_player.direction.z },
 			uint8(3),
 			[3]float32{other_player.position.x, other_player.position.y, other_player.position.z },
+			uint8(other_player.nicknameLen),
+			other_player.nickname,
 		}
-		binary.Write(&buf, binary.BigEndian, joinedMessage)
+		err = binary.Write(&buf, binary.BigEndian, joinedMessage)
+		if err != nil{
+			fmt.Printf("Could not create binary joinedMessage: %s\n", err)
+		}
 		mu.Lock()
 		err = conn.WriteMessage(websocket.BinaryMessage, buf.Bytes())
 		mu.Unlock()
@@ -156,6 +211,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			[3]float32{player.direction.x, player.direction.y, player.direction.z },
 			uint8(3),
 			[3]float32{player.position.x, player.position.y, player.position.z },
+			uint8(player.nicknameLen),
+			player.nickname,
 		}
 		binary.Write(&buf, binary.BigEndian, joinedMessage)
 		mu.Lock()
@@ -234,7 +291,7 @@ func main(){
 	http.HandleFunc("/", redirectToVite)
 	http.HandleFunc("/ws", handleConnection)
 	fmt.Println("Server started on :1580")
-	if err := http.ListenAndServe("0.0.0.0:1580", nil); err != nil {
+	if err := http.ListenAndServeTLS("0.0.0.0:1580", "/etc/letsencrypt/live/heyyouhere.io/cert.pem", "/etc/letsencrypt/live/heyyouhere.io/privkey.pem", nil); err != nil {
 		fmt.Println("Error starting server:", err)
 	}
 }
