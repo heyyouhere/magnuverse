@@ -109,7 +109,7 @@ const joinedMessage = greachabuf.createStruct({
 
 
 function onProgress(p){
-    console.log(Math.floor(p.loaded/ p.total) * 100 + "%")
+    console.log("Loading... ", Math.floor(p.loaded/ p.total) * 100 + "%")
 }
 
 function loadModel(url) {
@@ -169,7 +169,7 @@ function createTextSprite(message, color) {
 class Player{
     constructor(glb, ws, text='test', isPlayer=false ) {
         this.id = null
-        this.username = text
+        this.username = '@'+text
         this.ws = ws
         this.isPlayer = isPlayer
         this.scene = SkeletonUtils.clone(glb.scene); // https://discourse.threejs.org/t/how-to-clone-a-gltf/78858/4
@@ -209,7 +209,7 @@ class Player{
     }
 
     handleMovement(){
-        temp = new THREE.Vector3().copy(this.scene.position)
+        let temp = new THREE.Vector3().copy(this.scene.position)
         temp.sub(camera.position)
         temp.y = 0;
         if (this.keypressed.has('w') || this.keypressed.has('ц')){
@@ -340,6 +340,7 @@ if (telegram){
     const webApp = telegram.WebApp;
 
     webApp.disableVerticalSwipes()
+    webApp.lockOrientation()
     if (webApp?.initDataUnsafe?.user?.username){
         playerName = webApp.initDataUnsafe.user.username
     }
@@ -397,7 +398,6 @@ if (/Mobi|Android/i.test(navigator.userAgent)){
     var nipple = nipplejs.create(options);
     let prev_dir = null;
     nipple.on('dir', (_, data) => {
-        console.log(data)
         if (prev_dir != directions[data.direction.angle]){
             player.keypressed.delete(prev_dir)
             player.keypressed.add(directions[data.direction.angle])
@@ -409,7 +409,6 @@ if (/Mobi|Android/i.test(navigator.userAgent)){
     })
 }
 
-let temp = new THREE.Vector3();
 player.playIdle()
 camera.position.y = 2
 camera.position.z = 4
@@ -440,8 +439,6 @@ window.addEventListener('resize', () => {
 });
 
 renderer.domElement.addEventListener("blur", function(event) {
-    console.log(event)
-    console.log("Tab is not focused");
     player.keypressed.clear()
 });
 
@@ -455,7 +452,6 @@ ws.addEventListener('open', () => {
         userName : player.username
     })
     player.ws.send(welcomeMessage)
-    console.log("sent welcome message")
 });
 
 /**
@@ -466,13 +462,11 @@ function parse_ws_message(arrayBuffer){
     switch (view.getUint8()){
         case WSMessageType.PLAYER_WELCOME:
             player.id = view.getUint32(1)
-            console.log("Setting my id to:", player.id)
             break
         case WSMessageType.PLAYER_JOIN:
             const joined_id = view.getUint32(1)
             if (joined_id != player.id){
                 let update = joinedMessage.deserialize(view)
-                console.log(update.nickname)
                 let new_player = new Player(robot_glb, null, update.nickname)
                 players.set(joined_id, new_player);
                 new_player.applyJoin(update)
@@ -481,7 +475,6 @@ function parse_ws_message(arrayBuffer){
             break
         case WSMessageType.PLAYER_LEFT:
             const left_id = view.getUint32(1)
-            console.log("player left", left_id)
             let left_player = players.get(left_id)
             scene.remove(left_player.scene)
             players.delete(left_id)
@@ -497,7 +490,6 @@ function parse_ws_message(arrayBuffer){
             break
 
         default:
-            console.log("buffer:", view)
             console.error("unknown command byte:", view.getUint8())
             break
 
