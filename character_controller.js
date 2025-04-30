@@ -127,20 +127,20 @@ function loadModel(url) {
     });
 }
 
-// let metaverse = await loadModel('./public/scene.glb')
-// metaverse.scene.position.add(new THREE.Vector3(10, 1.6, -12));
-// metaverse.scene.rotateY(3.14 - 1)
-// metaverse.scene.castShadows = true;
-// metaverse.scene.receiveShadows = true;
-// scene.add(metaverse.scene)
-let floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(1000,1000),
-    new THREE.MeshStandardMaterial({color : 0xBAF22D})
-)
-floor.rotation.x = -Math.PI/2
-floor.receiveShadow = true;
-floor.castShadow  = true;
-scene.add(floor)
+let metaverse = await loadModel('./models/scene.glb')
+metaverse.scene.position.add(new THREE.Vector3(10, 1.6, -12));
+metaverse.scene.rotateY(3.14 - 1)
+metaverse.scene.castShadows = true;
+metaverse.scene.receiveShadows = true;
+scene.add(metaverse.scene)
+// let floor = new THREE.Mesh(
+//     new THREE.PlaneGeometry(1000,1000),
+//     new THREE.MeshStandardMaterial({color : 0xBAF22D})
+// )
+// floor.rotation.x = -Math.PI/2
+// floor.receiveShadow = true;
+// floor.castShadow  = true;
+// scene.add(floor)
 
 
 
